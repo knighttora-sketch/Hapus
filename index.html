@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Database Cleaner (Hapus Used)</title>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --danger: #ef4444; }
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; padding: 40px 20px; display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 600px; background: var(--card); padding: 2rem; border-radius: 12px; border: 1px solid #334155; text-align: center; }
+        h2 { color: var(--danger); margin-bottom: 20px; }
+        p { color: #94a3b8; margin-bottom: 30px; font-size: 0.9rem; }
+        
+        button { 
+            padding: 15px 30px; background: var(--danger); color: white; border: none; border-radius: 6px; 
+            font-size: 1.1rem; font-weight: bold; cursor: pointer; width: 100%; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3);
+        }
+        button:hover { opacity: 0.9; }
+        button:disabled { background: #475569; cursor: not-allowed; }
+
+        .log { 
+            margin-top: 30px; text-align: left; background: black; color: #fbbf24; padding: 15px; 
+            height: 200px; overflow-y: auto; border: 1px solid #333; border-radius: 6px; font-family: monospace; font-size: 0.85rem;
+        }
+        .stat-box { margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px; display: none; }
+        .stat-num { font-size: 2rem; font-weight: bold; color: white; }
+        .stat-label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>⚠️ Hapus Data Used</h2>
+        <p>Tools ini akan menghapus SEMUA Kode Redeem dan Akun yang statusnya <b>USED</b>.<br>Tindakan ini tidak dapat dibatalkan.</p>
+        
+        <div class="stat-box" id="statBox">
+            <div class="stat-num" id="deletedCount">0</div>
+            <div class="stat-label">Item Berhasil Dihapus</div>
+        </div>
+
+        <br>
+        <button id="btnClean" onclick="window.cleanDatabase()">HAPUS SEMUA DATA USED</button>
+
+        <div id="log" class="log">Menunggu perintah...</div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+        import { getDatabase, ref, get, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
+        // ==========================================
+        // ISI CONFIG FIREBASE ANDA
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyCul8W17gn3ckp1_B6JFfhqYOPfexXilrY",
+            authDomain: "fca1a.firebaseapp.com",
+            databaseURL: "https://fireba-fca1a-default-rtdb.asia-southeast1.firebasedatabase.app", // PENTING: URL Database Realtime
+            projectId: "fireba-fca1a",
+            storageBucket: "fireba-fca1a.firebasestorage.app",
+            messagingSenderId: "507496403967",
+            appId: "1:507496403967:web:9fe048882aeffd84ae4dca"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const logDiv = document.getElementById('log');
+        const btnClean = document.getElementById('btnClean');
+        const statBox = document.getElementById('statBox');
+        const deletedCountEl = document.getElementById('deletedCount');
+
+        let totalDeleted = 0;
+
+        function log(msg) {
+            logDiv.innerHTML += `<div>> ${msg}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        window.cleanDatabase = async () => {
+            if (!confirm("Apakah Anda YAKIN? Data used akan dihapus permanen.")) return;
+
+            btnClean.disabled = true;
+            btnClean.innerText = "Membersihkan...";
+            log("Mulai scanning database...");
+
+            try {
+                totalDeleted = 0;
+                statBox.style.display = 'block';
+                deletedCountEl.innerText = "0";
+
+                // 1. BERSIHKAN KODE REDEEM (path: codes)
+                log("1. Memeriksa Kode Redeem...");
+                const snapCodes = await get(ref(db, 'codes'));
+                if (snapCodes.exists()) {
+                    const codesData = snapCodes.val();
+                    for (const key in codesData) {
+                        // Lewati node 'accounts' karena itu tempat stok
+                        if (key === 'accounts') continue;
+
+                        const item = codesData[key];
+                        // Cek status (case insensitive)
+                        if (item.status && item.status.toLowerCase() === 'used') {
+                            await remove(ref(db, 'codes/' + key));
+                            totalDeleted++;
+                            log(`   - Menghapus Kode: ${item.code}`);
+                        }
+                    }
+                } else {
+                    log("   - Data kode kosong.");
+                }
+
+                // 2. BERSIHKAN STOK AKUN (path: codes/accounts)
+                log("2. Memeriksa Stok Akun...");
+                const snapAccs = await get(ref(db, 'codes/accounts'));
+                if (snapAccs.exists()) {
+                    const accsData = snapAccs.val();
+                    for (const key in accsData) {
+                        const item = accsData[key];
+                        if (item.status && item.status.toLowerCase() === 'used') {
+                            await remove(ref(db, 'codes/accounts/' + key));
+                            totalDeleted++;
+                            log(`   - Menghapus Akun: ${item.email}`);
+                        }
+                    }
+                } else {
+                    log("   - Data akun kosong.");
+                }
+
+                // Selesai
+                deletedCountEl.innerText = totalDeleted;
+                log(`✅ SELESAI! Total ${totalDeleted} data used dihapus.`);
+                alert(`Bersih! ${totalDeleted} data used telah dihapus.`);
+
+            } catch (e) {
+                log(`❌ Error: ${e.message}`);
+                alert("Terjadi kesalahan: " + e.message);
+            } finally {
+                btnClean.disabled = false;
+                btnClean.innerText = "HAPUS SEMUA DATA USED";
+            }
+        };
+    </script>
+</body>
+</html>
